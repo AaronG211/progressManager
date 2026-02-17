@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Progress Manager
 
-## Getting Started
+Stage 0 foundation for a monday.com-inspired work management product.
 
-First, run the development server:
+## Stack baseline
+
+- Next.js 16 + TypeScript
+- Tailwind CSS 4
+- Prisma + Postgres
+- Radix UI primitives
+- Vitest + Testing Library
+
+## Local setup
+
+1. Install dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Configure environment variables:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Generate Prisma client:
 
-## Learn More
+```bash
+pnpm db:generate
+```
 
-To learn more about Next.js, take a look at the following resources:
+4. Run development server:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open [http://localhost:3000](http://localhost:3000).
 
-## Deploy on Vercel
+## Quality gates
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Health endpoints
+
+- `GET /api/health` returns service metadata and timestamp.
+- `GET /api/ready` validates database readiness.
+
+Synthetic handled-error test for observability scaffold:
+
+- `GET /api/health?mode=error`
+
+## Database
+
+- `prisma/schema.prisma` defines Stage 0 models (`User`, `Workspace`).
+- This stage expects a managed Postgres connection via `DATABASE_URL`.
+
+Helpful commands:
+
+```bash
+pnpm db:generate
+pnpm db:migrate:dev
+```
+
+## CI/CD
+
+### CI workflow
+
+`/.github/workflows/ci.yml` runs on push/PR and enforces:
+
+- lint
+- typecheck
+- test
+- build
+
+### Staging deploy workflow
+
+`/.github/workflows/staging-deploy.yml` is manual (`workflow_dispatch`) and performs:
+
+1. install + build
+2. Vercel pull/build/deploy
+3. post-deploy health check against `/api/health`
+
+Required GitHub secrets:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+## Vercel environment requirements
+
+Set these for staging/production as needed:
+
+- `DATABASE_URL`
+- `APP_VERSION`
+- `SENTRY_DSN` (optional)
+- `SENTRY_ENVIRONMENT` (optional)
+- `NEXT_PUBLIC_APP_URL`
+- `NEXT_PUBLIC_POSTHOG_KEY` (optional)
+- `NEXT_PUBLIC_POSTHOG_HOST` (optional)
+
+## Stage 0 release notes
+
+- Restored runnable Next.js baseline and normalized setup docs.
+- Added Stage 0 architecture folders (`components`, `lib`, `styles`, `api`).
+- Added typed env parsing for server/client with Zod.
+- Added Prisma/Postgres baseline and readiness check flow.
+- Added health/readiness APIs with handled error path support.
+- Added UI primitives (button/input/dropdown/modal/tooltip/toast) and command palette shell.
+- Added observability wrappers for Sentry/PostHog with no-op fallback.
+- Added unit and API/component smoke tests.
+- Added CI workflow and one-click staging deploy workflow with health verification.
