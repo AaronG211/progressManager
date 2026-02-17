@@ -1,7 +1,7 @@
 import { BoardColumnType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getTelemetryClient } from "@/lib/observability";
-import { assertBoardAccess } from "@/lib/stage1/route-utils";
+import { getBoardAccess } from "@/lib/stage1/route-utils";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 
@@ -31,11 +31,17 @@ type RouteContext = {
 
 export async function PATCH(request: Request, context: RouteContext) {
   const { boardId, itemId, columnId } = await context.params;
-  const userId = await assertBoardAccess(boardId);
+  const access = await getBoardAccess(boardId);
 
-  if (!userId) {
+  if (access.status === "unauthenticated") {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  if (access.status === "not_found") {
     return NextResponse.json({ message: "Board not found" }, { status: 404 });
   }
+
+  const userId = access.userId;
 
   let payload: z.infer<typeof updateCellSchema>;
 

@@ -7,6 +7,7 @@ Stage 0 foundation plus Stage 1 MVP board scaffolding for a monday.com-inspired 
 - Next.js 16 + TypeScript
 - Tailwind CSS 4
 - Prisma + Postgres
+- Supabase Auth (magic link)
 - Radix UI primitives
 - Vitest + Testing Library
 
@@ -57,6 +58,16 @@ pnpm build
 - `POST /api/boards/:boardId/items` creates an item.
 - `PATCH /api/boards/:boardId/items/:itemId` updates item fields.
 - `PATCH /api/boards/:boardId/items/:itemId/cells/:columnId` updates a cell value.
+
+## Auth flow (Stage 1)
+
+- `/login` renders the magic-link sign-in form.
+- `/auth/callback` exchanges Supabase auth code for a session and redirects back to `/`.
+- `/` and all board APIs require an authenticated Supabase session.
+- Local setup requirement in Supabase dashboard:
+  - Authentication -> URL configuration -> add redirect URLs:
+    - `http://localhost:3000/auth/callback`
+    - your Vercel domain equivalent, e.g. `https://your-app.vercel.app/auth/callback`
 
 Synthetic handled-error test for observability scaffold:
 
@@ -112,8 +123,8 @@ Set these for staging/production as needed:
 - `DATABASE_URL`
 - `DIRECT_URL`
 - `APP_VERSION`
-- `STAGE1_DEV_USER_EMAIL` (temporary Stage 1 dev auth scaffold)
-- `STAGE1_DEV_USER_NAME` (optional)
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SENTRY_DSN` (optional)
 - `SENTRY_ENVIRONMENT` (optional)
 - `NEXT_PUBLIC_APP_URL`

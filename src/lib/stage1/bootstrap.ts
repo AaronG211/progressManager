@@ -1,5 +1,4 @@
 import { BoardColumnType, WorkspaceRole } from "@prisma/client";
-import { getOrCreateSessionUser } from "@/lib/auth/dev-session";
 import { prisma } from "@/lib/db/prisma";
 import { getBoardSnapshot } from "@/lib/stage1/board-query";
 
@@ -197,15 +196,14 @@ async function createDefaultBoard(workspaceId: string, userId: string): Promise<
   return board.id;
 }
 
-export async function ensureStageOneBoard() {
-  const user = await getOrCreateSessionUser();
-  const workspace = await getOrCreateWorkspace(user.id);
+export async function ensureStageOneBoard(userId: string) {
+  const workspace = await getOrCreateWorkspace(userId);
 
   await prisma.workspaceMember.upsert({
     where: {
       workspaceId_userId: {
         workspaceId: workspace.id,
-        userId: user.id,
+        userId,
       },
     },
     update: {
@@ -213,7 +211,7 @@ export async function ensureStageOneBoard() {
     },
     create: {
       workspaceId: workspace.id,
-      userId: user.id,
+      userId,
       role: WorkspaceRole.OWNER,
     },
   });
@@ -227,7 +225,7 @@ export async function ensureStageOneBoard() {
     },
   });
 
-  const boardId = existingBoard?.id ?? (await createDefaultBoard(workspace.id, user.id));
+  const boardId = existingBoard?.id ?? (await createDefaultBoard(workspace.id, userId));
   const snapshot = await getBoardSnapshot(boardId);
 
   if (!snapshot) {
@@ -236,6 +234,6 @@ export async function ensureStageOneBoard() {
 
   return {
     snapshot,
-    sessionUserId: user.id,
+    sessionUserId: userId,
   };
 }

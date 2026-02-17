@@ -1,10 +1,10 @@
-import { getOrCreateSessionUser } from "@/lib/auth/dev-session";
+import { getAuthenticatedAppUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
-export async function getSessionUserId(): Promise<string> {
-  const user = await getOrCreateSessionUser();
-  return user.id;
-}
+export type BoardAccessResult =
+  | { status: "unauthenticated" }
+  | { status: "not_found" }
+  | { status: "ok"; userId: string };
 
 export async function canAccessBoard(boardId: string, userId: string): Promise<boolean> {
   const board = await prisma.board.findFirst({
@@ -26,13 +26,19 @@ export async function canAccessBoard(boardId: string, userId: string): Promise<b
   return Boolean(board);
 }
 
-export async function assertBoardAccess(boardId: string): Promise<string | null> {
-  const userId = await getSessionUserId();
+export async function getBoardAccess(boardId: string): Promise<BoardAccessResult> {
+  const sessionUser = await getAuthenticatedAppUser();
+
+  if (!sessionUser) {
+    return { status: "unauthenticated" };
+  }
+
+  const userId = sessionUser.appUserId;
   const hasAccess = await canAccessBoard(boardId, userId);
 
   if (!hasAccess) {
-    return null;
+    return { status: "not_found" };
   }
 
-  return userId;
+  return { status: "ok", userId };
 }

@@ -1,4 +1,5 @@
 import { ensureStageOneBoard } from "@/lib/stage1/bootstrap";
+import { getAuthenticatedAppUser } from "@/lib/auth/session";
 import { getTelemetryClient } from "@/lib/observability";
 import { NextResponse } from "next/server";
 
@@ -6,7 +7,13 @@ const telemetry = getTelemetryClient();
 
 export async function GET() {
   try {
-    const { snapshot } = await ensureStageOneBoard();
+    const authUser = await getAuthenticatedAppUser();
+
+    if (!authUser) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+
+    const { snapshot } = await ensureStageOneBoard(authUser.appUserId);
     return NextResponse.json(snapshot);
   } catch (error: unknown) {
     telemetry.captureException(error, {

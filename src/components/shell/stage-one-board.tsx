@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getSupabaseBrowserClient } from "@/lib/auth/supabase/browser";
 import { getTelemetryClient } from "@/lib/observability";
 import { filterBoardSnapshotByItemName, getStatusOptions } from "@/lib/stage1/search";
 import type {
@@ -13,6 +14,7 @@ import type {
   StageOneItem,
   StageOneStatusOption,
 } from "@/lib/stage1/types";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 const telemetry = getTelemetryClient();
@@ -111,6 +113,15 @@ function updateItemInBoard(
   };
 }
 
+class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     headers: {
@@ -122,7 +133,7 @@ async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit): Prom
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { message?: string } | null;
     const message = payload?.message || `Request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new ApiError(response.status, message);
   }
 
   return response.json() as Promise<T>;
@@ -268,7 +279,12 @@ function emptyValueForColumnType(columnType: StageOneColumnType): Pick<
   return { textValue: null, statusValue: null, personId: null, dateValue: null };
 }
 
-export function StageOneBoard() {
+type StageOneBoardProps = {
+  userLabel: string;
+};
+
+export function StageOneBoard({ userLabel }: StageOneBoardProps) {
+  const router = useRouter();
   const [board, setBoard] = useState<StageOneBoardSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -297,6 +313,11 @@ export function StageOneBoard() {
           return;
         }
 
+        if (error instanceof ApiError && error.status === 401) {
+          router.replace("/login");
+          return;
+        }
+
         const message = error instanceof Error ? error.message : "Failed to load board";
         setErrorMessage(message);
       } finally {
@@ -311,7 +332,18 @@ export function StageOneBoard() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [router]);
+
+  const signOut = async (): Promise<void> => {
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+
+    router.replace("/login");
+    router.refresh();
+  };
 
   const visibleBoard = useMemo(() => {
     if (!board) {
@@ -517,7 +549,17 @@ export function StageOneBoard() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-8">
       <header className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-soft)]">
-        <p className="text-xs uppercase tracking-[0.2em] text-[var(--color-foreground-subtle)]">Stage 1 MVP</p>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.2em] text-[var(--color-foreground-subtle)]">
+            Stage 1 MVP
+          </p>
+          <div className="flex items-center gap-2 text-xs text-[var(--color-foreground-muted)]">
+            <span className="rounded-md border border-[var(--color-border)] px-2 py-1">{userLabel}</span>
+            <Button variant="neutral" className="h-8 px-3" onClick={() => void signOut()}>
+              Sign out
+            </Button>
+          </div>
+        </div>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--color-foreground)] md:text-3xl">
           {visibleBoard.boardName}
         </h1>

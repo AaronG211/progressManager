@@ -17,6 +17,8 @@ const serverEnvSchema = z.object({
   SENTRY_DSN: optionalUrl,
   SENTRY_ENVIRONMENT: z.string().min(1).default("development"),
   APP_VERSION: z.string().min(1).default("0.1.0"),
+  NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: optionalString,
 });
 
 export type AppEnvServer = z.infer<typeof serverEnvSchema>;

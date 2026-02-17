@@ -24,6 +24,7 @@ enum BoardColumnType {
 
 model User {
   id              String           @id @default(cuid())
+  supabaseAuthId  String?          @unique
   email           String           @unique
   name            String?
   createdAt       DateTime         @default(now())
