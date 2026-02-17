@@ -58,6 +58,15 @@ pnpm build
 - `POST /api/boards/:boardId/items` creates an item.
 - `PATCH /api/boards/:boardId/items/:itemId` updates item fields.
 - `PATCH /api/boards/:boardId/items/:itemId/cells/:columnId` updates a cell value.
+- `PATCH /api/boards/:boardId/columns/reorder` persists drag-reordered column order.
+- `GET /api/boards/:boardId/export/csv` downloads board data as CSV.
+
+Stage 1 keyboard interactions:
+
+- Arrow keys move focus across the board grid.
+- Press `Enter` on text cells (item name / text column) to enter edit mode.
+- Press `Esc` while editing a text cell to cancel and restore previous value.
+- Groups with more than 200 items use windowed row rendering (virtualization).
 
 ## Auth flow (Stage 1)
 

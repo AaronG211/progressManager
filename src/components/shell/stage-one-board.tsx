@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/auth/supabase/browser";
 import { getTelemetryClient } from "@/lib/observability";
+import { flattenVisibleRows, hasNoSearchResults } from "@/lib/stage1/board-view";
+import { reorderColumnsById } from "@/lib/stage1/columns";
+import { getNextGridPosition, isGridArrowKey, type GridArrowKey } from "@/lib/stage1/grid-navigation";
 import { filterBoardSnapshotByItemName, getStatusOptions } from "@/lib/stage1/search";
+import { getVirtualWindow } from "@/lib/stage1/virtualization";
 import type {
   StageOneBoardSnapshot,
   StageOneCellValue,
@@ -15,14 +19,25 @@ import type {
   StageOneStatusOption,
 } from "@/lib/stage1/types";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const telemetry = getTelemetryClient();
+const VIRTUALIZATION_ROW_THRESHOLD = 200;
+const VIRTUALIZATION_ROW_HEIGHT = 52;
+const VIRTUALIZATION_OVERSCAN = 8;
+const VIRTUALIZATION_VIEWPORT_HEIGHT = 480;
+
+type ArrowNavigationContext = {
+  rowIndex: number;
+  columnIndex: number;
+  onArrowKey: (rowIndex: number, columnIndex: number, key: GridArrowKey) => void;
+};
 
 type EditableTextCellProps = {
   value: string;
   ariaLabel: string;
   allowEmpty?: boolean;
+  navigation: ArrowNavigationContext;
   onCommit: (nextValue: string) => Promise<void>;
 };
 
@@ -30,13 +45,32 @@ function EditableTextCell({
   value,
   ariaLabel,
   allowEmpty = false,
+  navigation,
   onCommit,
 }: EditableTextCellProps) {
   const [draft, setDraft] = useState(value);
+  const [isEditing, setIsEditing] = useState(false);
+  const viewRef = useRef<HTMLButtonElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isEditing]);
 
   const commit = async (): Promise<void> => {
     const normalized = allowEmpty ? draft : draft.trim();
@@ -53,24 +87,80 @@ function EditableTextCell({
     await onCommit(normalized);
   };
 
+  const finishEditing = (restoreFocus: boolean) => {
+    setIsEditing(false);
+
+    if (!restoreFocus) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      viewRef.current?.focus();
+    });
+  };
+
+  if (!isEditing) {
+    return (
+      <button
+        ref={viewRef}
+        type="button"
+        data-grid-row={navigation.rowIndex}
+        data-grid-col={navigation.columnIndex}
+        aria-label={ariaLabel}
+        className="h-9 min-w-[160px] w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-left text-sm text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-brand-500)] focus:ring-2 focus:ring-[var(--color-brand-200)]"
+        onClick={() => {
+          setDraft(value);
+          setIsEditing(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            setDraft(value);
+            setIsEditing(true);
+            return;
+          }
+
+          if (!isGridArrowKey(event.key)) {
+            return;
+          }
+
+          event.preventDefault();
+          navigation.onArrowKey(navigation.rowIndex, navigation.columnIndex, event.key);
+        }}
+      >
+        {value || " "}
+      </button>
+    );
+  }
+
   return (
     <Input
+      ref={inputRef}
+      data-grid-row={navigation.rowIndex}
+      data-grid-col={navigation.columnIndex}
       aria-label={ariaLabel}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {
-        void commit();
+        void (async () => {
+          await commit();
+          finishEditing(true);
+        })();
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
-          void commit();
+          void (async () => {
+            await commit();
+            finishEditing(true);
+          })();
           event.currentTarget.blur();
         }
 
         if (event.key === "Escape") {
           event.preventDefault();
           setDraft(value);
+          finishEditing(true);
           event.currentTarget.blur();
         }
       }}
@@ -143,6 +233,7 @@ function renderStatusSelect(
   item: StageOneItem,
   column: StageOneColumn,
   options: StageOneStatusOption[],
+  navigation: ArrowNavigationContext,
   onUpdateCell: (
     itemId: string,
     column: StageOneColumn,
@@ -153,10 +244,20 @@ function renderStatusSelect(
 
   return (
     <select
+      data-grid-row={navigation.rowIndex}
+      data-grid-col={navigation.columnIndex}
       value={value}
       className="h-9 min-w-[150px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
       onChange={(event) => {
         void onUpdateCell(item.id, column, event.target.value || null);
+      }}
+      onKeyDown={(event) => {
+        if (!isGridArrowKey(event.key)) {
+          return;
+        }
+
+        event.preventDefault();
+        navigation.onArrowKey(navigation.rowIndex, navigation.columnIndex, event.key);
       }}
     >
       <option value="">Unassigned</option>
@@ -173,6 +274,7 @@ function renderPersonSelect(
   item: StageOneItem,
   column: StageOneColumn,
   board: StageOneBoardSnapshot,
+  navigation: ArrowNavigationContext,
   onUpdateCell: (
     itemId: string,
     column: StageOneColumn,
@@ -183,10 +285,20 @@ function renderPersonSelect(
 
   return (
     <select
+      data-grid-row={navigation.rowIndex}
+      data-grid-col={navigation.columnIndex}
       value={value}
       className="h-9 min-w-[150px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
       onChange={(event) => {
         void onUpdateCell(item.id, column, event.target.value || null);
+      }}
+      onKeyDown={(event) => {
+        if (!isGridArrowKey(event.key)) {
+          return;
+        }
+
+        event.preventDefault();
+        navigation.onArrowKey(navigation.rowIndex, navigation.columnIndex, event.key);
       }}
     >
       <option value="">Unassigned</option>
@@ -202,6 +314,7 @@ function renderPersonSelect(
 function renderDateInput(
   item: StageOneItem,
   column: StageOneColumn,
+  navigation: ArrowNavigationContext,
   onUpdateCell: (
     itemId: string,
     column: StageOneColumn,
@@ -213,11 +326,21 @@ function renderDateInput(
 
   return (
     <Input
+      data-grid-row={navigation.rowIndex}
+      data-grid-col={navigation.columnIndex}
       type="date"
       className="h-9 min-w-[150px]"
       value={value}
       onChange={(event) => {
         void onUpdateCell(item.id, column, event.target.value || null);
+      }}
+      onKeyDown={(event) => {
+        if (!isGridArrowKey(event.key)) {
+          return;
+        }
+
+        event.preventDefault();
+        navigation.onArrowKey(navigation.rowIndex, navigation.columnIndex, event.key);
       }}
     />
   );
@@ -227,6 +350,7 @@ function renderCell(
   item: StageOneItem,
   column: StageOneColumn,
   board: StageOneBoardSnapshot,
+  navigation: ArrowNavigationContext,
   onUpdateCell: (
     itemId: string,
     column: StageOneColumn,
@@ -241,6 +365,7 @@ function renderCell(
         ariaLabel={`${column.name} for ${item.name}`}
         value={cell?.textValue ?? ""}
         allowEmpty
+        navigation={navigation}
         onCommit={async (nextValue) => {
           await onUpdateCell(item.id, column, nextValue);
         }}
@@ -250,14 +375,14 @@ function renderCell(
 
   if (column.type === "STATUS") {
     const options = getStatusOptions(column.settings?.options);
-    return renderStatusSelect(item, column, options, onUpdateCell);
+    return renderStatusSelect(item, column, options, navigation, onUpdateCell);
   }
 
   if (column.type === "PERSON") {
-    return renderPersonSelect(item, column, board, onUpdateCell);
+    return renderPersonSelect(item, column, board, navigation, onUpdateCell);
   }
 
-  return renderDateInput(item, column, onUpdateCell);
+  return renderDateInput(item, column, navigation, onUpdateCell);
 }
 
 function emptyValueForColumnType(columnType: StageOneColumnType): Pick<
@@ -285,16 +410,25 @@ type StageOneBoardProps = {
 
 export function StageOneBoard({ userLabel }: StageOneBoardProps) {
   const router = useRouter();
+  const groupScrollContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [board, setBoard] = useState<StageOneBoardSnapshot | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [creatingItemGroupId, setCreatingItemGroupId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [search, setSearch] = useState("");
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
+  const [groupScrollTopById, setGroupScrollTopById] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let mounted = true;
 
     async function loadBoard(): Promise<void> {
+      setIsLoading(true);
+
       try {
         const snapshot = await apiRequest<StageOneBoardSnapshot>("/api/boards/bootstrap");
 
@@ -302,6 +436,7 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
           return;
         }
 
+        setErrorMessage(null);
         setBoard(snapshot);
         telemetry.track("stage1_board_loaded", {
           boardId: snapshot.boardId,
@@ -332,7 +467,7 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [router, reloadNonce]);
 
   const signOut = async (): Promise<void> => {
     const supabase = getSupabaseBrowserClient();
@@ -352,6 +487,183 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
 
     return filterBoardSnapshotByItemName(board, search);
   }, [board, search]);
+
+  const renderedRows = useMemo(() => {
+    if (!visibleBoard) {
+      return [] as StageOneItem[];
+    }
+
+    return flattenVisibleRows(visibleBoard.groups);
+  }, [visibleBoard]);
+
+  const rowIndexByItemId = useMemo(() => {
+    const map = new Map<string, number>();
+
+    renderedRows.forEach((item, index) => {
+      map.set(item.id, index);
+    });
+
+    return map;
+  }, [renderedRows]);
+
+  const rowLocationByIndex = useMemo(() => {
+    const map = new Map<number, { groupId: string; indexInGroup: number }>();
+
+    if (!visibleBoard) {
+      return map;
+    }
+
+    let currentRowIndex = 0;
+
+    for (const group of visibleBoard.groups) {
+      if (group.isCollapsed) {
+        continue;
+      }
+
+      group.items.forEach((_, indexInGroup) => {
+        map.set(currentRowIndex, {
+          groupId: group.id,
+          indexInGroup,
+        });
+        currentRowIndex += 1;
+      });
+    }
+
+    return map;
+  }, [visibleBoard]);
+
+  const totalGridRows = renderedRows.length;
+  const totalGridColumns = (visibleBoard?.columns.length ?? 0) + 1;
+
+  const handleArrowNavigation = (rowIndex: number, columnIndex: number, key: GridArrowKey) => {
+    const next = getNextGridPosition(
+      { row: rowIndex, col: columnIndex },
+      key,
+      totalGridRows,
+      totalGridColumns,
+    );
+
+    if (!next) {
+      return;
+    }
+
+    const target = document.querySelector<HTMLElement>(
+      `[data-grid-row="${next.row}"][data-grid-col="${next.col}"]`,
+    );
+
+    if (target) {
+      target.focus();
+      return;
+    }
+
+    const rowLocation = rowLocationByIndex.get(next.row);
+
+    if (!rowLocation) {
+      return;
+    }
+
+    const container = groupScrollContainerRefs.current[rowLocation.groupId];
+
+    if (!container) {
+      return;
+    }
+
+    container.scrollTop = Math.max(
+      0,
+      rowLocation.indexInGroup * VIRTUALIZATION_ROW_HEIGHT - VIRTUALIZATION_ROW_HEIGHT,
+    );
+
+    window.requestAnimationFrame(() => {
+      const delayedTarget = document.querySelector<HTMLElement>(
+        `[data-grid-row="${next.row}"][data-grid-col="${next.col}"]`,
+      );
+      delayedTarget?.focus();
+    });
+  };
+
+  const reorderColumns = async (movingColumnId: string, targetColumnId: string) => {
+    if (!board) {
+      return;
+    }
+
+    const reorderedColumns = reorderColumnsById(board.columns, movingColumnId, targetColumnId);
+
+    if (reorderedColumns === board.columns) {
+      return;
+    }
+
+    const previous = board;
+
+    setBoard({
+      ...board,
+      columns: reorderedColumns,
+    });
+
+    try {
+      await apiRequest(`/api/boards/${board.boardId}/columns/reorder`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          columnIds: reorderedColumns.map((column) => column.id),
+        }),
+      });
+      setErrorMessage(null);
+      telemetry.track("stage1_columns_reordered_client", {
+        boardId: board.boardId,
+        sourceColumnId: movingColumnId,
+        targetColumnId,
+      });
+    } catch (error: unknown) {
+      setBoard(previous);
+      setErrorMessage(error instanceof Error ? error.message : "Unable to reorder columns");
+    }
+  };
+
+  const exportCsv = async () => {
+    if (!board || isExporting) {
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const response = await fetch(`/api/boards/${board.boardId}/export/csv`, {
+        method: "GET",
+      });
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message || "Unable to export board CSV");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get("Content-Disposition") || "";
+      const filenameMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+      const filename = filenameMatch?.[1] || "board-export.csv";
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(objectUrl);
+      setErrorMessage(null);
+
+      telemetry.track("stage1_csv_exported_client", {
+        boardId: board.boardId,
+      });
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to export board CSV");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const updateGroup = async (groupId: string, patch: { name?: string; isCollapsed?: boolean }) => {
     if (!board) {
@@ -384,7 +696,7 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
   };
 
   const createGroup = async () => {
-    if (!board) {
+    if (!board || isCreatingGroup) {
       return;
     }
 
@@ -393,6 +705,8 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
     if (!normalizedName) {
       return;
     }
+
+    setIsCreatingGroup(true);
 
     try {
       const createdGroup = await apiRequest<StageOneGroup>(`/api/boards/${board.boardId}/groups`, {
@@ -408,13 +722,17 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
       setErrorMessage(null);
     } catch (error: unknown) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to create group");
+    } finally {
+      setIsCreatingGroup(false);
     }
   };
 
   const createItem = async (groupId: string) => {
-    if (!board) {
+    if (!board || creatingItemGroupId === groupId) {
       return;
     }
+
+    setCreatingItemGroupId(groupId);
 
     try {
       const createdItem = await apiRequest<StageOneItem>(`/api/boards/${board.boardId}/items`, {
@@ -439,6 +757,8 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
       setErrorMessage(null);
     } catch (error: unknown) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to create item");
+    } finally {
+      setCreatingItemGroupId((current) => (current === groupId ? null : current));
     }
   };
 
@@ -540,8 +860,18 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
 
   if (!visibleBoard || !board) {
     return (
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6 text-sm text-rose-400">
-        {errorMessage || "Unable to load board"}
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-sm text-rose-400">{errorMessage || "Unable to load board"}</p>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setReloadNonce((current) => current + 1);
+            }}
+          >
+            Retry
+          </Button>
+        </div>
       </div>
     );
   }
@@ -578,20 +908,44 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
             className="max-w-md"
           />
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => void exportCsv()} loading={isExporting}>
+              Export CSV
+            </Button>
             <Input
               aria-label="New group name"
               value={groupNameDraft}
               onChange={(event) => setGroupNameDraft(event.target.value)}
               placeholder="New group name"
               className="w-48"
+              disabled={isCreatingGroup}
             />
-            <Button onClick={() => void createGroup()}>Add Group</Button>
+            <Button onClick={() => void createGroup()} loading={isCreatingGroup}>
+              Add Group
+            </Button>
           </div>
         </div>
 
         {errorMessage && <p className="mt-3 text-sm text-rose-400">{errorMessage}</p>}
       </section>
+
+      {hasNoSearchResults(visibleBoard.groups, search) && (
+        <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-[var(--shadow-soft)]">
+          <p className="text-sm text-[var(--color-foreground-muted)]">
+            No items matched &quot;{search.trim()}&quot;.
+          </p>
+          <div className="mt-3">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSearch("");
+              }}
+            >
+              Clear Search
+            </Button>
+          </div>
+        </section>
+      )}
 
       <div className="space-y-4">
         {visibleBoard.groups.map((group) => (
@@ -612,13 +966,40 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
                 {group.isCollapsed ? "▶" : "▼"} {group.name}
               </button>
 
-              <Button variant="secondary" onClick={() => void createItem(group.id)}>
+              <Button
+                variant="secondary"
+                onClick={() => void createItem(group.id)}
+                loading={creatingItemGroupId === group.id}
+              >
                 Add Item
               </Button>
             </div>
 
             {!group.isCollapsed && (
-              <div className="overflow-x-auto">
+              <div
+                ref={(node) => {
+                  groupScrollContainerRefs.current[group.id] = node;
+                }}
+                className={group.items.length > VIRTUALIZATION_ROW_THRESHOLD ? "max-h-[480px] overflow-auto" : "overflow-x-auto"}
+                onScroll={(event) => {
+                  if (group.items.length <= VIRTUALIZATION_ROW_THRESHOLD) {
+                    return;
+                  }
+
+                  const nextScrollTop = event.currentTarget.scrollTop;
+
+                  setGroupScrollTopById((current) => {
+                    if (current[group.id] === nextScrollTop) {
+                      return current;
+                    }
+
+                    return {
+                      ...current,
+                      [group.id]: nextScrollTop,
+                    };
+                  });
+                }}
+              >
                 <table className="min-w-full border-collapse">
                   <thead className="sticky top-0 z-20 bg-[var(--color-surface)]">
                     <tr>
@@ -628,7 +1009,34 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
                       {visibleBoard.columns.map((column) => (
                         <th
                           key={column.id}
-                          className="border-b border-[var(--color-border)] px-3 py-2 text-left text-xs uppercase tracking-[0.12em] text-[var(--color-foreground-subtle)]"
+                          draggable
+                          className={`border-b border-[var(--color-border)] px-3 py-2 text-left text-xs uppercase tracking-[0.12em] text-[var(--color-foreground-subtle)] ${
+                            draggingColumnId === column.id ? "opacity-60" : ""
+                          }`}
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", column.id);
+                            setDraggingColumnId(column.id);
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const movingColumnId = draggingColumnId || event.dataTransfer.getData("text/plain");
+
+                            setDraggingColumnId(null);
+
+                            if (!movingColumnId || movingColumnId === column.id) {
+                              return;
+                            }
+
+                            void reorderColumns(movingColumnId, column.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingColumnId(null);
+                          }}
                         >
                           {column.name}
                         </th>
@@ -636,24 +1044,76 @@ export function StageOneBoard({ userLabel }: StageOneBoardProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {group.items.map((item) => (
-                      <tr key={item.id} className="border-b border-[var(--color-border)] last:border-b-0">
-                        <td className="sticky left-0 z-10 bg-[var(--color-surface)] px-3 py-2">
-                          <EditableTextCell
-                            ariaLabel={`Item name ${item.name}`}
-                            value={item.name}
-                            onCommit={async (nextValue) => {
-                              await updateItemName(item.id, nextValue);
-                            }}
-                          />
-                        </td>
-                        {visibleBoard.columns.map((column) => (
-                          <td key={`${item.id}:${column.id}`} className="px-3 py-2 align-top">
-                            {renderCell(item, column, visibleBoard, updateCell)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
+                    {(() => {
+                      const shouldVirtualize = group.items.length > VIRTUALIZATION_ROW_THRESHOLD;
+                      const scrollTop = groupScrollTopById[group.id] ?? 0;
+                      const windowedRange = shouldVirtualize
+                        ? getVirtualWindow({
+                            totalCount: group.items.length,
+                            scrollTop,
+                            viewportHeight: VIRTUALIZATION_VIEWPORT_HEIGHT,
+                            rowHeight: VIRTUALIZATION_ROW_HEIGHT,
+                            overscan: VIRTUALIZATION_OVERSCAN,
+                          })
+                        : null;
+                      const visibleItems = shouldVirtualize && windowedRange
+                        ? group.items.slice(windowedRange.startIndex, windowedRange.endIndex + 1)
+                        : group.items;
+
+                      return (
+                        <>
+                          {shouldVirtualize && windowedRange && windowedRange.topSpacerHeight > 0 && (
+                            <tr aria-hidden="true">
+                              <td
+                                colSpan={visibleBoard.columns.length + 1}
+                                style={{ height: `${windowedRange.topSpacerHeight}px`, padding: 0, border: 0 }}
+                              />
+                            </tr>
+                          )}
+
+                          {visibleItems.map((item) => {
+                            const rowIndex = rowIndexByItemId.get(item.id) ?? 0;
+
+                            return (
+                              <tr key={item.id} className="border-b border-[var(--color-border)] last:border-b-0">
+                                <td className="sticky left-0 z-10 bg-[var(--color-surface)] px-3 py-2">
+                                  <EditableTextCell
+                                    ariaLabel={`Item name ${item.name}`}
+                                    value={item.name}
+                                    navigation={{
+                                      rowIndex,
+                                      columnIndex: 0,
+                                      onArrowKey: handleArrowNavigation,
+                                    }}
+                                    onCommit={async (nextValue) => {
+                                      await updateItemName(item.id, nextValue);
+                                    }}
+                                  />
+                                </td>
+                                {visibleBoard.columns.map((column, index) => (
+                                  <td key={`${item.id}:${column.id}`} className="px-3 py-2 align-top">
+                                    {renderCell(item, column, visibleBoard, {
+                                      rowIndex,
+                                      columnIndex: index + 1,
+                                      onArrowKey: handleArrowNavigation,
+                                    }, updateCell)}
+                                  </td>
+                                ))}
+                              </tr>
+                            );
+                          })}
+
+                          {shouldVirtualize && windowedRange && windowedRange.bottomSpacerHeight > 0 && (
+                            <tr aria-hidden="true">
+                              <td
+                                colSpan={visibleBoard.columns.length + 1}
+                                style={{ height: `${windowedRange.bottomSpacerHeight}px`, padding: 0, border: 0 }}
+                              />
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })()}
                   </tbody>
                 </table>
 

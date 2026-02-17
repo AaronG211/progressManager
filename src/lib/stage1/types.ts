@@ -85,3 +85,7 @@ export type StageOneUpdateCellRequest = {
   personId?: string | null;
   dateValue?: string | null;
 };
+
+export type StageOneReorderColumnsRequest = {
+  columnIds: string[];
+};
