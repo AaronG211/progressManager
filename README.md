@@ -68,6 +68,8 @@ pnpm db:generate
 pnpm db:migrate:dev
 ```
 
+`pnpm build` runs `prisma generate` automatically through the `prebuild` hook.
+
 ## CI/CD
 
 ### CI workflow
