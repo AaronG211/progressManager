@@ -21,13 +21,23 @@ const clientEnvSchema = z.object({
 
 export type AppEnvClient = z.infer<typeof clientEnvSchema>;
 
+function readProcessClientEnv(): Record<string, string | undefined> {
+  return {
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
+    NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  };
+}
+
 export function parseClientEnv(
-  source: Record<string, string | undefined> = process.env,
+  source: Record<string, string | undefined> = readProcessClientEnv(),
 ) {
   return clientEnvSchema.safeParse(source);
 }
 
-export function getClientEnv(source: Record<string, string | undefined> = process.env): AppEnvClient {
+export function getClientEnv(source: Record<string, string | undefined> = readProcessClientEnv()): AppEnvClient {
   const parsed = parseClientEnv(source);
 
   if (!parsed.success) {
