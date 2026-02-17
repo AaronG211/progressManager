@@ -2,6 +2,8 @@ import { LoginForm } from "@/components/auth/login-form";
 import { getAuthenticatedAppUser } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 export default async function LoginPage() {
   const user = await getAuthenticatedAppUser();
 
