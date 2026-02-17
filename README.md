@@ -1,6 +1,6 @@
 # Progress Manager
 
-Stage 0 foundation for a monday.com-inspired work management product.
+Stage 0 foundation plus Stage 1 MVP board scaffolding for a monday.com-inspired work management product.
 
 ## Stack baseline
 
@@ -47,10 +47,16 @@ pnpm test
 pnpm build
 ```
 
-## Health endpoints
+## Health and board endpoints
 
 - `GET /api/health` returns service metadata and timestamp.
 - `GET /api/ready` validates database readiness.
+- `GET /api/boards/bootstrap` returns the active board snapshot and bootstraps defaults on first run.
+- `POST /api/boards/:boardId/groups` creates a group.
+- `PATCH /api/boards/:boardId/groups/:groupId` updates group collapse/name.
+- `POST /api/boards/:boardId/items` creates an item.
+- `PATCH /api/boards/:boardId/items/:itemId` updates item fields.
+- `PATCH /api/boards/:boardId/items/:itemId/cells/:columnId` updates a cell value.
 
 Synthetic handled-error test for observability scaffold:
 
@@ -58,8 +64,12 @@ Synthetic handled-error test for observability scaffold:
 
 ## Database
 
-- `prisma/schema.prisma` defines Stage 0 models (`User`, `Workspace`).
-- This stage expects a managed Postgres connection via `DATABASE_URL`.
+- `prisma/schema.prisma` now includes Stage 1 board models:
+  - `WorkspaceMember`
+  - `Board`, `BoardGroup`, `BoardColumn`, `BoardItem`, `BoardCellValue`
+- Managed Postgres connection settings:
+  - `DATABASE_URL` for app runtime
+  - `DIRECT_URL` for Prisma migrations
 
 Helpful commands:
 
@@ -100,7 +110,10 @@ Required GitHub secrets:
 Set these for staging/production as needed:
 
 - `DATABASE_URL`
+- `DIRECT_URL`
 - `APP_VERSION`
+- `STAGE1_DEV_USER_EMAIL` (temporary Stage 1 dev auth scaffold)
+- `STAGE1_DEV_USER_NAME` (optional)
 - `SENTRY_DSN` (optional)
 - `SENTRY_ENVIRONMENT` (optional)
 - `NEXT_PUBLIC_APP_URL`

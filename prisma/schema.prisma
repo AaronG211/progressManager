@@ -3,24 +3,138 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum BoardColumnType {
+  TEXT
+  STATUS
+  PERSON
+  DATE
 }
 
 model User {
-  id              String      @id @default(cuid())
-  email           String      @unique
+  id              String           @id @default(cuid())
+  email           String           @unique
   name            String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  ownedWorkspaces Workspace[]      @relation("WorkspaceOwner")
+  memberships     WorkspaceMember[]
+  createdBoards   Board[]          @relation("BoardCreatedBy")
+  updatedItems    BoardItem[]      @relation("ItemLastEditedBy")
+  assignedValues  BoardCellValue[] @relation("PersonColumnValue")
+  updatedValues   BoardCellValue[] @relation("ValueUpdatedBy")
 }
 
 model Workspace {
-  id        String   @id @default(cuid())
+  id        String            @id @default(cuid())
   name      String
   ownerId   String
-  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  owner     User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   WorkspaceMember[]
+  boards    Board[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([workspaceId, userId])
+}
+
+model Board {
+  id          String       @id @default(cuid())
+  workspaceId String
+  name        String
+  createdById String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("BoardCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  groups      BoardGroup[]
+  columns     BoardColumn[]
+  items       BoardItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model BoardGroup {
+  id          String      @id @default(cuid())
+  boardId      String
+  name        String
+  position    Int
+  isCollapsed Boolean     @default(false)
+  board       Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  items       BoardItem[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([boardId, position])
+}
+
+model BoardColumn {
+  id        String          @id @default(cuid())
+  boardId   String
+  name      String
+  type      BoardColumnType
+  position  Int
+  settings  Json?
+  board     Board           @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  values    BoardCellValue[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([boardId, position])
+}
+
+model BoardItem {
+  id             String           @id @default(cuid())
+  boardId        String
+  groupId        String
+  name           String
+  position       Int
+  lastEditedById String?
+  board          Board            @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  group          BoardGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  lastEditedBy   User?            @relation("ItemLastEditedBy", fields: [lastEditedById], references: [id], onDelete: SetNull)
+  values         BoardCellValue[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([groupId, position])
+}
+
+model BoardCellValue {
+  id          String      @id @default(cuid())
+  itemId      String
+  columnId    String
+  textValue   String?
+  statusValue String?
+  personId    String?
+  dateValue   DateTime?
+  updatedById String?
+  item        BoardItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  column      BoardColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  person      User?       @relation("PersonColumnValue", fields: [personId], references: [id], onDelete: SetNull)
+  updatedBy   User?       @relation("ValueUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([itemId, columnId])
 }

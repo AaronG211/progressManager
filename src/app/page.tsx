@@ -1,5 +1,5 @@
-import { StageZeroHome } from "@/components/shell/stage-zero-home";
+import { StageOneBoard } from "@/components/shell/stage-one-board";
 
 export default function Home() {
-  return <StageZeroHome />;
+  return <StageOneBoard />;
 }
