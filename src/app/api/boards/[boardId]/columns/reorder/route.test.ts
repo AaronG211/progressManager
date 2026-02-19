@@ -3,11 +3,17 @@
 import { PATCH } from "@/app/api/boards/[boardId]/columns/reorder/route";
 import { describe, expect, it, vi } from "vitest";
 
-const { getBoardAccess } = vi.hoisted(() => ({
+const { getBoardAccess, canWriteBoard } = vi.hoisted(() => ({
   getBoardAccess: vi.fn(),
+  canWriteBoard: vi.fn(),
+}));
+
+const { writeWorkspaceAuditLog } = vi.hoisted(() => ({
+  writeWorkspaceAuditLog: vi.fn(),
 }));
 
 const prismaMocks = vi.hoisted(() => {
+  const findUniqueBoard = vi.fn();
   const findMany = vi.fn();
   const updateMany = vi.fn();
   const update = vi.fn();
@@ -21,6 +27,7 @@ const prismaMocks = vi.hoisted(() => {
   );
 
   return {
+    findUniqueBoard,
     findMany,
     updateMany,
     update,
@@ -30,10 +37,18 @@ const prismaMocks = vi.hoisted(() => {
 
 vi.mock("@/lib/stage1/route-utils", () => ({
   getBoardAccess,
+  canWriteBoard,
+}));
+
+vi.mock("@/lib/stage2/audit", () => ({
+  writeWorkspaceAuditLog,
 }));
 
 vi.mock("@/lib/db/prisma", () => ({
   prisma: {
+    board: {
+      findUnique: prismaMocks.findUniqueBoard,
+    },
     boardColumn: {
       findMany: prismaMocks.findMany,
     },
@@ -73,7 +88,13 @@ describe("PATCH /api/boards/[boardId]/columns/reorder", () => {
   });
 
   it("returns 400 when payload ids do not match board columns", async () => {
-    getBoardAccess.mockResolvedValueOnce({ status: "ok", userId: "user_1" });
+    getBoardAccess.mockResolvedValueOnce({
+      status: "ok",
+      userId: "user_1",
+      role: "OWNER",
+    });
+    canWriteBoard.mockReturnValueOnce(true);
+    prismaMocks.findUniqueBoard.mockResolvedValueOnce({ workspaceId: "workspace_1" });
     prismaMocks.findMany.mockResolvedValueOnce([{ id: COLUMN_A }, { id: COLUMN_B }]);
 
     const response = await PATCH(
@@ -93,8 +114,17 @@ describe("PATCH /api/boards/[boardId]/columns/reorder", () => {
   });
 
   it("persists reordered positions in a transaction", async () => {
-    getBoardAccess.mockResolvedValueOnce({ status: "ok", userId: "user_1" });
-    prismaMocks.findMany.mockResolvedValueOnce([{ id: COLUMN_A }, { id: COLUMN_B }]);
+    getBoardAccess.mockResolvedValueOnce({
+      status: "ok",
+      userId: "user_1",
+      role: "OWNER",
+    });
+    canWriteBoard.mockReturnValueOnce(true);
+    prismaMocks.findUniqueBoard.mockResolvedValueOnce({ workspaceId: "workspace_1" });
+    prismaMocks.findMany.mockResolvedValueOnce([
+      { id: COLUMN_A, name: "A", position: 0 },
+      { id: COLUMN_B, name: "B", position: 1 },
+    ]);
     prismaMocks.updateMany.mockResolvedValueOnce({ count: 2 });
     prismaMocks.update.mockResolvedValue({ id: COLUMN_A });
 
@@ -115,5 +145,30 @@ describe("PATCH /api/boards/[boardId]/columns/reorder", () => {
     expect(prismaMocks.transaction).toHaveBeenCalledTimes(1);
     expect(prismaMocks.updateMany).toHaveBeenCalledTimes(1);
     expect(prismaMocks.update).toHaveBeenCalledTimes(2);
+    expect(writeWorkspaceAuditLog).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 403 when role is read-only", async () => {
+    getBoardAccess.mockResolvedValueOnce({
+      status: "ok",
+      userId: "user_1",
+      role: "VIEWER",
+    });
+    canWriteBoard.mockReturnValueOnce(false);
+
+    const response = await PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({ columnIds: [COLUMN_A, COLUMN_B] }),
+      }),
+      {
+        params: Promise.resolve({ boardId: "board_1" }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      message: "Forbidden",
+    });
   });
 });

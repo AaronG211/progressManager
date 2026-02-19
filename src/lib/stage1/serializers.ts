@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
-import type { StageOneBoardSnapshot, StageOneColumnSettings } from "@/lib/stage1/types";
+import type {
+  StageBoardViewConfig,
+  StageOneBoardSnapshot,
+  StageOneColumnSettings,
+} from "@/lib/stage1/types";
 
 export const stageOneBoardInclude = Prisma.validator<Prisma.BoardInclude>()({
   workspace: {
@@ -15,6 +19,11 @@ export const stageOneBoardInclude = Prisma.validator<Prisma.BoardInclude>()({
     },
   },
   columns: {
+    orderBy: {
+      position: "asc",
+    },
+  },
+  views: {
     orderBy: {
       position: "asc",
     },
@@ -52,11 +61,39 @@ function asColumnSettings(value: Prisma.JsonValue | null): StageOneColumnSetting
   return value as StageOneColumnSettings;
 }
 
+function asViewConfig(value: Prisma.JsonValue | null): StageBoardViewConfig | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as StageBoardViewConfig;
+}
+
+function asTagsValue(value: Prisma.JsonValue | null): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return normalized;
+}
+
 export function serializeBoardSnapshot(board: StageOneBoardRecord): StageOneBoardSnapshot {
   return {
     workspaceId: board.workspaceId,
     boardId: board.id,
     boardName: board.name,
+    views: board.views.map((view) => ({
+      id: view.id,
+      name: view.name,
+      type: view.type,
+      position: view.position,
+      config: asViewConfig(view.config),
+    })),
     columns: board.columns.map((column) => ({
       id: column.id,
       name: column.name,
@@ -83,6 +120,10 @@ export function serializeBoardSnapshot(board: StageOneBoardRecord): StageOneBoar
           statusValue: value.statusValue,
           personId: value.personId,
           dateValue: value.dateValue ? value.dateValue.toISOString() : null,
+          numberValue: value.numberValue,
+          tagsValue: asTagsValue(value.tagsValue),
+          checkboxValue: value.checkboxValue,
+          urlValue: value.urlValue,
         })),
       })),
     })),

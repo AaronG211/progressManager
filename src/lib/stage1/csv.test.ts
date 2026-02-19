@@ -6,6 +6,7 @@ const snapshotFixture: StageOneBoardSnapshot = {
   workspaceId: "ws_1",
   boardId: "board_1",
   boardName: "Stage 1 Tasks",
+  views: [],
   columns: [
     {
       id: "col_text",
@@ -35,6 +36,34 @@ const snapshotFixture: StageOneBoardSnapshot = {
       position: 3,
       settings: null,
     },
+    {
+      id: "col_number",
+      name: "Estimate",
+      type: "NUMBER",
+      position: 4,
+      settings: null,
+    },
+    {
+      id: "col_tags",
+      name: "Tags",
+      type: "TAGS",
+      position: 5,
+      settings: null,
+    },
+    {
+      id: "col_checkbox",
+      name: "Done",
+      type: "CHECKBOX",
+      position: 6,
+      settings: null,
+    },
+    {
+      id: "col_url",
+      name: "Reference URL",
+      type: "URL",
+      position: 7,
+      settings: null,
+    },
   ],
   groups: [
     {
@@ -58,6 +87,10 @@ const snapshotFixture: StageOneBoardSnapshot = {
               statusValue: null,
               personId: null,
               dateValue: null,
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: null,
             },
             {
               id: "val_2",
@@ -67,6 +100,10 @@ const snapshotFixture: StageOneBoardSnapshot = {
               statusValue: "Working",
               personId: null,
               dateValue: null,
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: null,
             },
             {
               id: "val_3",
@@ -76,6 +113,10 @@ const snapshotFixture: StageOneBoardSnapshot = {
               statusValue: null,
               personId: "user_1",
               dateValue: null,
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: null,
             },
             {
               id: "val_4",
@@ -85,6 +126,62 @@ const snapshotFixture: StageOneBoardSnapshot = {
               statusValue: null,
               personId: null,
               dateValue: "2026-02-20T00:00:00.000Z",
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: null,
+            },
+            {
+              id: "val_5",
+              itemId: "item_1",
+              columnId: "col_number",
+              textValue: null,
+              statusValue: null,
+              personId: null,
+              dateValue: null,
+              numberValue: 8,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: null,
+            },
+            {
+              id: "val_6",
+              itemId: "item_1",
+              columnId: "col_tags",
+              textValue: null,
+              statusValue: null,
+              personId: null,
+              dateValue: null,
+              numberValue: null,
+              tagsValue: ["MVP", "Planning"],
+              checkboxValue: null,
+              urlValue: null,
+            },
+            {
+              id: "val_7",
+              itemId: "item_1",
+              columnId: "col_checkbox",
+              textValue: null,
+              statusValue: null,
+              personId: null,
+              dateValue: null,
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: true,
+              urlValue: null,
+            },
+            {
+              id: "val_8",
+              itemId: "item_1",
+              columnId: "col_url",
+              textValue: null,
+              statusValue: null,
+              personId: null,
+              dateValue: null,
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: "https://example.com/spec",
             },
           ],
         },
@@ -105,8 +202,10 @@ describe("buildBoardCsv", () => {
   it("builds csv rows with typed column values", () => {
     const csv = buildBoardCsv(snapshotFixture);
 
-    expect(csv).toContain("Group,Item,Notes,Status,Owner,Due Date");
-    expect(csv).toContain("Backlog,Define MVP scope,Capture must-have board editing,Working,Demo Owner,2026-02-20");
+    expect(csv).toContain("Group,Item,Notes,Status,Owner,Due Date,Estimate,Tags,Done,Reference URL");
+    expect(csv).toContain(
+      "Backlog,Define MVP scope,Capture must-have board editing,Working,Demo Owner,2026-02-20,8,\"MVP, Planning\",Checked,https://example.com/spec",
+    );
   });
 
   it("escapes commas, quotes and new lines", () => {

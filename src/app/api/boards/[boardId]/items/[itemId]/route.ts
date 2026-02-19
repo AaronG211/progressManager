@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { getTelemetryClient } from "@/lib/observability";
-import { getBoardAccess } from "@/lib/stage1/route-utils";
+import { canWriteBoard, getBoardAccess } from "@/lib/stage1/route-utils";
+import { writeWorkspaceAuditLog } from "@/lib/stage2/audit";
+import { createMentionNotifications } from "@/lib/stage2/notifications";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 
@@ -31,6 +33,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     return NextResponse.json({ message: "Board not found" }, { status: 404 });
   }
 
+  if (!canWriteBoard(access.role)) {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  }
+
   const userId = access.userId;
 
   let payload: z.infer<typeof updateItemSchema>;
@@ -46,6 +52,16 @@ export async function PATCH(request: Request, context: RouteContext) {
       where: {
         id: itemId,
         boardId,
+      },
+      select: {
+        id: true,
+        name: true,
+        groupId: true,
+        board: {
+          select: {
+            workspaceId: true,
+          },
+        },
       },
     });
 
@@ -100,6 +116,32 @@ export async function PATCH(request: Request, context: RouteContext) {
       },
       data: updateData,
     });
+
+    await writeWorkspaceAuditLog({
+      workspaceId: existingItem.board.workspaceId,
+      actorUserId: userId,
+      action: "board_item_updated",
+      entityType: "BoardItem",
+      entityId: updatedItem.id,
+      details: {
+        boardId,
+        previousName: existingItem.name,
+        nextName: updatedItem.name,
+        previousGroupId: existingItem.groupId,
+        nextGroupId: updatedItem.groupId,
+      },
+    });
+
+    if (payload.name !== undefined && payload.name !== existingItem.name) {
+      await createMentionNotifications({
+        workspaceId: existingItem.board.workspaceId,
+        actorUserId: userId,
+        text: payload.name,
+        contextLabel: `Mentioned in item name`,
+        entityType: "BoardItem",
+        entityId: updatedItem.id,
+      });
+    }
 
     telemetry.track("stage1_item_updated", {
       boardId,

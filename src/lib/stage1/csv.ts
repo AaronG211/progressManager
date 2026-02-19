@@ -67,11 +67,31 @@ function getCellDisplayValue(
     return getMemberLabel(membersById.get(value.personId)) || value.personId;
   }
 
-  if (!value.dateValue) {
-    return "";
+  if (column.type === "DATE") {
+    if (!value.dateValue) {
+      return "";
+    }
+
+    return formatDateValue(value.dateValue);
   }
 
-  return formatDateValue(value.dateValue);
+  if (column.type === "NUMBER") {
+    return value.numberValue === null ? "" : String(value.numberValue);
+  }
+
+  if (column.type === "TAGS") {
+    return value.tagsValue ? value.tagsValue.join(", ") : "";
+  }
+
+  if (column.type === "CHECKBOX") {
+    if (value.checkboxValue === null) {
+      return "";
+    }
+
+    return value.checkboxValue ? "Checked" : "Unchecked";
+  }
+
+  return value.urlValue ?? "";
 }
 
 export function buildBoardCsv(snapshot: StageOneBoardSnapshot): string {

@@ -32,6 +32,7 @@ const snapshotFixture: StageOneBoardSnapshot = {
   workspaceId: "workspace_1",
   boardId: "board_1",
   boardName: "Team Tasks",
+  views: [],
   columns: [
     {
       id: "col_notes",
@@ -63,6 +64,10 @@ const snapshotFixture: StageOneBoardSnapshot = {
               statusValue: null,
               personId: null,
               dateValue: null,
+              numberValue: null,
+              tagsValue: null,
+              checkboxValue: null,
+              urlValue: null,
             },
           ],
         },
@@ -90,6 +95,7 @@ describe("GET /api/boards/[boardId]/export/csv", () => {
     getBoardAccess.mockResolvedValueOnce({
       status: "ok",
       userId: "user_1",
+      role: "OWNER",
     });
     getBoardSnapshot.mockResolvedValueOnce(snapshotFixture);
 

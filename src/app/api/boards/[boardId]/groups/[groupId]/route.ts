@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { getTelemetryClient } from "@/lib/observability";
-import { getBoardAccess } from "@/lib/stage1/route-utils";
+import { canWriteBoard, getBoardAccess } from "@/lib/stage1/route-utils";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 
@@ -29,6 +29,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   if (access.status === "not_found") {
     return NextResponse.json({ message: "Board not found" }, { status: 404 });
+  }
+
+  if (!canWriteBoard(access.role)) {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
   }
 
   const userId = access.userId;

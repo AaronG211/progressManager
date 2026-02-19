@@ -53,6 +53,8 @@ pnpm build
 - `GET /api/health` returns service metadata and timestamp.
 - `GET /api/ready` validates database readiness.
 - `GET /api/boards/bootstrap` returns the active board snapshot and bootstraps defaults on first run.
+- `GET /api/boards/bootstrap?itemOffset=<n>&itemLimit=<n>` returns paged snapshot envelope:
+  `{ snapshot, pageInfo }`.
 - `POST /api/boards/:boardId/groups` creates a group.
 - `PATCH /api/boards/:boardId/groups/:groupId` updates group collapse/name.
 - `POST /api/boards/:boardId/items` creates an item.
@@ -60,6 +62,19 @@ pnpm build
 - `PATCH /api/boards/:boardId/items/:itemId/cells/:columnId` updates a cell value.
 - `PATCH /api/boards/:boardId/columns/reorder` persists drag-reordered column order.
 - `GET /api/boards/:boardId/export/csv` downloads board data as CSV.
+- `GET|PATCH /api/boards/:boardId/share` reads/updates board visibility and share-link settings.
+- `GET /api/boards/share/:token` returns a read-only board snapshot for public share links.
+- `GET /api/boards/share/:token?itemOffset=<n>&itemLimit=<n>` returns paged snapshot envelope:
+  `{ snapshot, pageInfo }`.
+- `GET /api/workspaces/:workspaceId/members` returns members and pending invites.
+- `GET /api/workspaces/:workspaceId/invites` lists pending invites (owner/admin).
+- `POST /api/workspaces/:workspaceId/invites` creates an invite link (owner/admin).
+- `PATCH /api/workspaces/:workspaceId/members/:memberUserId` updates member role (owner/admin).
+- `GET|POST /api/workspaces/invites/:token/accept` accepts invite for current user.
+- `GET /api/notifications` returns current user notifications.
+- `PATCH /api/notifications/:notificationId` marks a notification as read/unread.
+- `GET /api/boards/:boardId/views` returns saved board views.
+- `PATCH /api/boards/:boardId/views/:viewId` updates view name/config.
 
 Stage 1 keyboard interactions:
 
@@ -67,6 +82,51 @@ Stage 1 keyboard interactions:
 - Press `Enter` on text cells (item name / text column) to enter edit mode.
 - Press `Esc` while editing a text cell to cancel and restore previous value.
 - Groups with more than 200 items use windowed row rendering (virtualization).
+
+Stage 2 collaboration foundation:
+
+- Workspace invite links include role (`ADMIN`/`MEMBER`/`VIEWER`) with 7-day expiry.
+- Board write APIs now enforce role-based permissions (`VIEWER` is read-only).
+- Board permissions support `private` vs `workspace-visible` plus optional read-only share links.
+- Workspace invite/member role changes write audit log records (`WorkspaceAuditLog`).
+- Audit log now captures item updates, item cell updates, and column reorder events.
+- Notifications v1 now include `@mention` and assignment-change events.
+- Board table rows show `last edited by` presence-lite metadata.
+- Public share links render `/share/:token` in view-only mode.
+
+Stage 3 views foundation:
+
+- Board snapshots now include persisted views (`Table`, `Kanban`, `Calendar`, `Timeline`).
+- View config supports saved filters/sort (`status`, `person`, `date range`, `sort`).
+- Board UI supports view switching with shared underlying board data across views.
+- Expanded column types now supported end-to-end: `NUMBER`, `TAGS`, `CHECKBOX`, `URL`.
+- Saved view filters now also support `number range`, `tag contains`, `checkbox`, and `URL contains`.
+- Timeline view now supports date-range rendering with saved start/end date-column selection per view.
+- Non-table views (`Kanban`, `Calendar`, `Timeline`) now use incremental rendering with a `Load more items` control for large result sets.
+- Board shell now requests paged board snapshots from `/api/boards/bootstrap` and `/api/boards/share/:token` using `itemOffset` + `itemLimit`, then merges subsequent pages client-side.
+- Pagination merge logic is now extracted to shared Stage 3 helpers with dedicated tests, including large-board pagination coverage (>5k items).
+- Paginated bootstrap/share responses expose Stage 3 sampling headers (`x-stage3-page-*`, `x-stage3-payload-bytes`, `x-stage3-duration-ms`, `server-timing`) and emit telemetry events.
+
+Stage 3 performance baseline:
+
+- Run benchmark:
+  - `pnpm bench:stage3`
+- Latest local sample (February 19, 2026):
+  - `paginate-first-page`: `avg=0.03ms` (`min=0.00ms`, `max=0.13ms`)
+  - `paginate-deep-page`: `avg=0.01ms` (`min=0.00ms`, `max=0.01ms`)
+  - `apply-view-filters` (10k items): `avg=3.29ms` (`min=0.96ms`, `max=8.84ms`)
+
+Stage 3 acceptance checklist:
+
+- `Table`, `Kanban`, `Calendar`, `Timeline` views all render from one shared board schema/value model.
+- Saved view config is persisted via `PATCH /api/boards/:boardId/views/:viewId` and reapplied on reload.
+- Editing in non-table views (status/date, including timeline date-range inputs) updates shared item data.
+- Large-board handling includes pagination metadata + client merge flow for `/api/boards/bootstrap` and `/api/boards/share/:token`.
+- Quality gate pass:
+  - `pnpm lint`
+  - `pnpm typecheck`
+  - `pnpm test`
+  - `pnpm build`
 
 ## Auth flow (Stage 1)
 

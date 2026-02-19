@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench:stage3": "STAGE3_BENCH=1 vitest run src/lib/stage3/performance.test.ts --reporter=verbose",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev"
   },

@@ -1,12 +1,16 @@
 import { getAuthenticatedAppUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
+import { WorkspaceRole } from "@prisma/client";
 
 export type BoardAccessResult =
   | { status: "unauthenticated" }
   | { status: "not_found" }
-  | { status: "ok"; userId: string };
+  | { status: "ok"; userId: string; role: WorkspaceRole };
 
-export async function canAccessBoard(boardId: string, userId: string): Promise<boolean> {
+export async function canAccessBoard(
+  boardId: string,
+  userId: string,
+): Promise<WorkspaceRole | null> {
   const board = await prisma.board.findFirst({
     where: {
       id: boardId,
@@ -19,11 +23,28 @@ export async function canAccessBoard(boardId: string, userId: string): Promise<b
       },
     },
     select: {
-      id: true,
+      workspace: {
+        select: {
+          members: {
+            where: {
+              userId,
+            },
+            select: {
+              role: true,
+            },
+            take: 1,
+          },
+        },
+      },
     },
   });
 
-  return Boolean(board);
+  const role = board?.workspace.members[0]?.role;
+  return role ?? null;
+}
+
+export function canWriteBoard(role: WorkspaceRole): boolean {
+  return role !== WorkspaceRole.VIEWER;
 }
 
 export async function getBoardAccess(boardId: string): Promise<BoardAccessResult> {
@@ -34,11 +55,11 @@ export async function getBoardAccess(boardId: string): Promise<BoardAccessResult
   }
 
   const userId = sessionUser.appUserId;
-  const hasAccess = await canAccessBoard(boardId, userId);
+  const role = await canAccessBoard(boardId, userId);
 
-  if (!hasAccess) {
+  if (!role) {
     return { status: "not_found" };
   }
 
-  return { status: "ok", userId };
+  return { status: "ok", userId, role };
 }

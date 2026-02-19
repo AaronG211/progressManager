@@ -15,37 +15,68 @@ enum WorkspaceRole {
   VIEWER
 }
 
+enum WorkspaceInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum WorkspaceNotificationType {
+  MENTION
+  ASSIGNMENT_CHANGED
+}
+
 enum BoardColumnType {
   TEXT
   STATUS
   PERSON
   DATE
+  NUMBER
+  TAGS
+  CHECKBOX
+  URL
+}
+
+enum BoardViewType {
+  TABLE
+  KANBAN
+  CALENDAR
+  TIMELINE
 }
 
 model User {
-  id              String           @id @default(cuid())
-  supabaseAuthId  String?          @unique
-  email           String           @unique
-  name            String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  ownedWorkspaces Workspace[]      @relation("WorkspaceOwner")
-  memberships     WorkspaceMember[]
-  createdBoards   Board[]          @relation("BoardCreatedBy")
-  updatedItems    BoardItem[]      @relation("ItemLastEditedBy")
-  assignedValues  BoardCellValue[] @relation("PersonColumnValue")
-  updatedValues   BoardCellValue[] @relation("ValueUpdatedBy")
+  id                   String              @id @default(cuid())
+  supabaseAuthId       String?             @unique
+  email                String              @unique
+  name                 String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  ownedWorkspaces      Workspace[]         @relation("WorkspaceOwner")
+  memberships          WorkspaceMember[]
+  createdBoards        Board[]             @relation("BoardCreatedBy")
+  updatedItems         BoardItem[]         @relation("ItemLastEditedBy")
+  assignedValues       BoardCellValue[]    @relation("PersonColumnValue")
+  updatedValues        BoardCellValue[]    @relation("ValueUpdatedBy")
+  createdInvites       WorkspaceInvite[]   @relation("WorkspaceInviteCreatedBy")
+  acceptedInvites      WorkspaceInvite[]   @relation("WorkspaceInviteAcceptedBy")
+  workspaceAuditEvents WorkspaceAuditLog[] @relation("WorkspaceAuditActor")
+  receivedNotifications WorkspaceNotification[] @relation("WorkspaceNotificationRecipient")
+  sentNotifications     WorkspaceNotification[] @relation("WorkspaceNotificationActor")
 }
 
 model Workspace {
-  id        String            @id @default(cuid())
+  id        String              @id @default(cuid())
   name      String
   ownerId   String
-  owner     User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner     User                @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   members   WorkspaceMember[]
+  invites   WorkspaceInvite[]
+  auditLogs WorkspaceAuditLog[]
+  notifications WorkspaceNotification[]
   boards    Board[]
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
 }
 
 model WorkspaceMember {
@@ -66,10 +97,13 @@ model Board {
   workspaceId String
   name        String
   createdById String
+  isPrivate   Boolean      @default(false)
+  shareToken  String?      @unique
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   User         @relation("BoardCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   groups      BoardGroup[]
   columns     BoardColumn[]
+  views       BoardView[]
   items       BoardItem[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -129,6 +163,10 @@ model BoardCellValue {
   statusValue String?
   personId    String?
   dateValue   DateTime?
+  numberValue Float?
+  tagsValue   Json?
+  checkboxValue Boolean?
+  urlValue    String?
   updatedById String?
   item        BoardItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
   column      BoardColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
@@ -138,4 +176,74 @@ model BoardCellValue {
   updatedAt   DateTime    @updatedAt
 
   @@unique([itemId, columnId])
+}
+
+model BoardView {
+  id        String       @id @default(cuid())
+  boardId   String
+  name      String
+  type      BoardViewType
+  position  Int
+  config    Json?
+  board     Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([boardId, position])
+}
+
+model WorkspaceInvite {
+  id           String                @id @default(cuid())
+  workspaceId  String
+  invitedById  String
+  acceptedById String?
+  email        String
+  role         WorkspaceRole         @default(MEMBER)
+  token        String                @unique
+  status       WorkspaceInviteStatus @default(PENDING)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy    User                  @relation("WorkspaceInviteCreatedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy   User?                 @relation("WorkspaceInviteAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, email])
+}
+
+model WorkspaceAuditLog {
+  id          String    @id @default(cuid())
+  workspaceId String
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  details     Json?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor       User?     @relation("WorkspaceAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+}
+
+model WorkspaceNotification {
+  id          String                    @id @default(cuid())
+  workspaceId String
+  userId      String
+  actorUserId String?
+  type        WorkspaceNotificationType
+  title       String
+  message     String
+  entityType  String
+  entityId    String?
+  readAt      DateTime?
+  createdAt   DateTime                  @default(now())
+  workspace   Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User                      @relation("WorkspaceNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor       User?                     @relation("WorkspaceNotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, readAt, createdAt])
 }

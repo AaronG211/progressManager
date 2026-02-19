@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getTelemetryClient } from "@/lib/observability";
-import { getBoardAccess } from "@/lib/stage1/route-utils";
+import { canWriteBoard, getBoardAccess } from "@/lib/stage1/route-utils";
+import { writeWorkspaceAuditLog } from "@/lib/stage2/audit";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 
@@ -47,6 +48,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     return NextResponse.json({ message: "Board not found" }, { status: 404 });
   }
 
+  if (!canWriteBoard(access.role)) {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  }
+
   const userId = access.userId;
   let payload: z.infer<typeof reorderColumnsSchema>;
 
@@ -57,17 +62,33 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const existingColumns = await prisma.boardColumn.findMany({
-      where: {
-        boardId,
-      },
-      select: {
-        id: true,
-      },
-      orderBy: {
-        position: "asc",
-      },
-    });
+    const [board, existingColumns] = await Promise.all([
+      prisma.board.findUnique({
+        where: {
+          id: boardId,
+        },
+        select: {
+          workspaceId: true,
+        },
+      }),
+      prisma.boardColumn.findMany({
+        where: {
+          boardId,
+        },
+        select: {
+          id: true,
+          name: true,
+          position: true,
+        },
+        orderBy: {
+          position: "asc",
+        },
+      }),
+    ]);
+
+    if (!board) {
+      return NextResponse.json({ message: "Board not found" }, { status: 404 });
+    }
 
     const existingIds = existingColumns.map((column) => column.id);
 
@@ -97,6 +118,23 @@ export async function PATCH(request: Request, context: RouteContext) {
           },
         });
       }
+    });
+
+    await writeWorkspaceAuditLog({
+      workspaceId: board.workspaceId,
+      actorUserId: userId,
+      action: "board_columns_reordered",
+      entityType: "Board",
+      entityId: boardId,
+      details: {
+        boardId,
+        previousOrder: existingColumns.map((column) => ({
+          id: column.id,
+          name: column.name,
+          position: column.position,
+        })),
+        nextOrder: payload.columnIds,
+      },
     });
 
     telemetry.track("stage1_columns_reordered", {
