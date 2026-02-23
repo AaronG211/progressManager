@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "prisma generate",
+    "prebuild": "pnpm run db:migrate:deploy:if-configured && prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "bench:stage3": "STAGE3_BENCH=1 vitest run src/lib/stage3/performance.test.ts --reporter=verbose",
     "db:generate": "prisma generate",
-    "db:migrate:dev": "prisma migrate dev"
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:deploy:if-configured": "if [ -n \"$DATABASE_URL\" ] && [ -n \"$DIRECT_URL\" ]; then prisma migrate deploy; elif [ -n \"$VERCEL\" ] && [ -n \"$DATABASE_URL\" ]; then echo \"DIRECT_URL is required for prisma migrate deploy in Vercel builds.\" && exit 1; else echo \"Skipping prisma migrate deploy (DATABASE_URL/DIRECT_URL not set in shell env).\"; fi"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",

@@ -156,9 +156,15 @@ Helpful commands:
 ```bash
 pnpm db:generate
 pnpm db:migrate:dev
+pnpm db:migrate:deploy
 ```
 
-`pnpm build` runs `prisma generate` automatically through the `prebuild` hook.
+`pnpm build` now runs a guarded migrate step in `prebuild`:
+
+- If both `DATABASE_URL` and `DIRECT_URL` are set, it runs `prisma migrate deploy` first.
+- Otherwise it skips migration and still runs `prisma generate`.
+
+This prevents deployment/runtime schema drift (for example `/api/boards/bootstrap` 500 caused by missing Stage 2/3 migrations).
 
 ## CI/CD
 
